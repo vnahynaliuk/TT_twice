@@ -92,9 +92,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """Обробник команди /help."""
     help_text = """
 📖 **Доступні команди:**
-/start - Привіт
-/help - Показати цю довідку
-/about - Про цього бота
+/start_pohnaly - Привіт
+/help_me_please - Показати цю довідку
+/who_asked - Про цього бота
 
 🔗 **Підтримувані платформи:**
 • TikTok (tiktok.com)
@@ -242,9 +242,9 @@ def main() -> None:
     application = Application.builder().token(token).build()
 
     # Додати обробники команд
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("about", about))
+    application.add_handler(CommandHandler("start_pohnaly", start))
+    application.add_handler(CommandHandler("help_me_please", help_command))
+    application.add_handler(CommandHandler("who_asked", about))
     application.add_handler(CommandHandler("cleanup", cleanup))
 
     # Додати обробник повідомлень для посилань на відео
