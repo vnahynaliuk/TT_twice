@@ -240,11 +240,6 @@ def main() -> None:
     # Додати обробник повідомлень для посилань на відео
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_video))
 
-    # Додати автоматичне очищення кожні 24 години
-    job_queue = application.job_queue
-    job_queue.run_repeating(cleanup_task, interval=CLEANUP_INTERVAL, first=0)
-    logger.info(f"Автоматичне очищення налаштовано на кожні {CLEANUP_INTERVAL // 3600} годин")
-
     # Почати опитування повідомлень
     logger.info("Бот запущено. Опитування повідомлень...")
     application.run_polling()
