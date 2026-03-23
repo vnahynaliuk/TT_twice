@@ -160,10 +160,29 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         try:
             # Створити унікальне ім'я файлу на основі часу
             import time
+            import json
             timestamp = int(time.time() * 1000000)  # мікросекунди для унікальності
             output_path = DOWNLOADS_DIR / f"video_{timestamp}.%(ext)s"
             
-            # Підготувати команду yt-dlp
+            # Спочатку отримати метаінформацію (опис)
+            info_cmd = [
+                "yt-dlp",
+                "-j",
+                "--no-warnings",
+                url
+            ]
+            
+            try:
+                info_result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=30)
+                video_info = json.loads(info_result.stdout) if info_result.stdout else {}
+                description = video_info.get('description', '').strip()
+                title = video_info.get('title', '').strip()
+            except Exception as e:
+                logger.warning(f"Не вдалося отримати метаінформацію: {e}")
+                description = ""
+                title = ""
+            
+            # Підготувати команду yt-dlp для завантаження
             cmd = [
                 "yt-dlp",
                 "-f", "best",
@@ -205,11 +224,17 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             # Відправити відео користувачу
             await status_message.edit_text("Завантажую в Telegram...")
             
+            # Підготувати caption з опису
+            caption = "ПЕРЕМОГА БУДЕ!"
+            if description:
+                # Обмежити опис до 1024 символів (ліміт Telegram)
+                caption = description[:1024]
+            
             with open(video_file, 'rb') as f:
                 await update.message.reply_video(
                     video=f,
-                caption="ПЕРЕМОГА БУДЕ!"
-            )
+                    caption=caption
+                )
             
             # Очистити завантажений файл
             os.remove(video_file)
@@ -253,6 +278,7 @@ def main() -> None:
             BotCommand("start_pohnaly", "Привіт"),
             BotCommand("help_me_please", "Показати цю довідку"),
             BotCommand("who_asked", "Про цього бота"),
+            BotCommand("cleanup", "Очистити старі файли"),
         ]
         await app.bot.set_my_commands(commands)
         logger.info("Команди встановлені в Telegram")
