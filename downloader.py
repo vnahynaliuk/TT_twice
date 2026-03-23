@@ -320,6 +320,11 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     logger.warning(f"instagrapi не спрацював для {url}: {e}")
                     # Продовжити з yt-dlp як fallback
             
+            # Якщо це Instagram та instagrapi не доступний/не спрацював - перейти до наступного
+            if is_instagram:
+                await status_message.edit_text("Instagram не підтримується. Спробуй завантажити безпосередньо з сайту.")
+                continue
+            
             # Створити унікальне ім'я файлу на основі часу
             timestamp = int(time.time() * 1000000)  # мікросекунди для унікальності
             output_path = DOWNLOADS_DIR / f"video_{timestamp}.%(ext)s"
