@@ -7,10 +7,22 @@ import logging
 import os
 import subprocess
 import time
+import asyncio
+import json
+import glob
+import urllib.request
 from pathlib import Path
 from dotenv import load_dotenv
 from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+
+try:
+    from instagrapi import Client as InstaClient
+    INSTAGRAPI_AVAILABLE = True
+except ImportError:
+    INSTAGRAPI_AVAILABLE = False
+    logger_temp = logging.getLogger(__name__)
+    logger_temp.warning("instagrapi не встановлено, Instagram фото не будуть завантажуватися")
 
 # Завантажити змінні середовища з файлу .env
 load_dotenv()
@@ -98,8 +110,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 🔗 **Підтримувані платформи:**
 • TikTok - відео
-• Instagram Reels - відео
-• Instagram Posts - фото (альбоми)
+• Instagram - відео та фото
 • YouTube - відео (зберігає aspect ratio)
 • Twitter/X - відео
 
@@ -141,9 +152,67 @@ async def vlop_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("https://youtu.be/lhOuMYtQ94M?si=-2d0ejWlBlq8NwyO")
 
 
+async def download_instagram(url: str) -> list:
+    """Завантажити фото/відео з Instagram через instagrapi."""
+    if not INSTAGRAPI_AVAILABLE:
+        raise Exception("instagrapi не встановлено")
+    
+    try:
+        cl = InstaClient()
+        
+        # Отримати ID з URL
+        media_pk = cl.media_pk_from_url(url)
+        
+        # Отримати інформацію про медіа
+        media = cl.media_info(media_pk)
+        
+        # Список файлів що були завантажені
+        downloaded_files = []
+        
+        # Обробити в залежності від типу
+        if media.media_type == 1:  # Фото
+            file_path = DOWNLOADS_DIR / f"insta_{int(time.time() * 1000000)}.jpg"
+            media.set_user(cl.user_info(media.user.pk))
+            
+            # Завантажити фото
+            photo_url = media.image_versions2.candidates[0].url
+            urllib.request.urlretrieve(photo_url, str(file_path))
+            downloaded_files.append(str(file_path))
+            
+        elif media.media_type == 8:  # Альбом (carousel)
+            for idx, carousel_item in enumerate(media.carousel_media):
+                if carousel_item.media_type == 1:  # Фото в альбомі
+                    file_path = DOWNLOADS_DIR / f"insta_{int(time.time() * 1000000)}_carousel_{idx}.jpg"
+                    photo_url = carousel_item.image_versions2.candidates[0].url
+                    urllib.request.urlretrieve(photo_url, str(file_path))
+                    downloaded_files.append(str(file_path))
+                elif carousel_item.media_type == 2:  # Відео в альбомі
+                    file_path = DOWNLOADS_DIR / f"insta_{int(time.time() * 1000000)}_carousel_{idx}.mp4"
+                    video_url = carousel_item.video_url
+                    urllib.request.urlretrieve(video_url, str(file_path))
+                    downloaded_files.append(str(file_path))
+        elif media.media_type == 2:  # Відео (реел)
+            file_path = DOWNLOADS_DIR / f"insta_{int(time.time() * 1000000)}.mp4"
+            video_url = media.video_url
+            urllib.request.urlretrieve(video_url, str(file_path))
+            downloaded_files.append(str(file_path))
+        
+        return downloaded_files
+        
+    except Exception as e:
+        logger.error(f"Помилка завантаження Instagram: {e}")
+        raise
+
+
 # ============================================================================
 # ОБРОБНИК ЗАВАНТАЖЕННЯ ВІДЕО
 # ============================================================================
+
+async def vlop_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обробник для слів vlop/влоп."""
+    message_text = update.message.text.lower()
+    if 'vlop' in message_text or 'влоп' in message_text:
+        await update.message.reply_text("https://youtu.be/lhOuMYtQ94M?si=-2d0ejWlBlq8NwyO")
 
 async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Завантажити відео за надане посилання."""
@@ -177,16 +246,81 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not any(platform in url for platform in SUPPORTED_PLATFORMS):
             continue
         
-        # Визначити тип контенту (фото або відео)
-        is_instagram_photo = 'instagram.com' in url and '/p/' in url
+        # Визначити чи це Instagram
+        is_instagram = 'instagram.com' in url
         
         # Відправити повідомлення про обробку
         status_message = await update.message.reply_text(f"⏳ Не ссикуй щас буде. Обробляю: {url}")
         
         try:
+            # Для Instagram спочатку спробувати instagrapi
+            if is_instagram and INSTAGRAPI_AVAILABLE:
+                try:
+                    downloaded_files = await asyncio.to_thread(download_instagram, url)
+                    
+                    if downloaded_files:
+                        # Отримати опис через yt-dlp (якщо можна)
+                        description = ""
+                        try:
+                            info_cmd = ["yt-dlp", "-j", "--no-warnings", url]
+                            info_result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=30)
+                            video_info = json.loads(info_result.stdout) if info_result.stdout else {}
+                            description = video_info.get('description', '').strip()
+                        except:
+                            pass
+                        
+                        # Відправити кожен файл
+                        for video_file in downloaded_files:
+                            if os.path.exists(video_file):
+                                file_size = os.path.getsize(video_file)
+                                
+                                if file_size > MAX_FILE_SIZE:
+                                    os.remove(video_file)
+                                    size_mb = file_size / 1024 / 1024
+                                    max_mb = MAX_FILE_SIZE / 1024 / 1024
+                                    await status_message.edit_text(
+                                        f"Файл занадто великий ({size_mb:.1f}MB).\n"
+                                        f"Максимальний розмір {max_mb:.0f}MB"
+                                    )
+                                    continue
+                                
+                                await status_message.edit_text("Завантажую в Telegram...")
+                                
+                                # Підготувати caption
+                                if description:
+                                    lines = description.split('\n')
+                                    quoted_lines = ['> ' + line for line in lines if line.strip()]
+                                    caption = '\n'.join(quoted_lines)[:1024]
+                                else:
+                                    caption = "ПЕРЕМОГА БУДЕ!"
+                                
+                                # Визначити тип файлу
+                                ext = os.path.splitext(video_file)[1].lower()
+                                
+                                with open(video_file, 'rb') as f:
+                                    if ext in ['.jpg', '.jpeg', '.png', '.gif']:
+                                        await update.message.reply_photo(
+                                            photo=f,
+                                            caption=caption,
+                                            parse_mode="MarkdownV2"
+                                        )
+                                    else:
+                                        await update.message.reply_video(
+                                            video=f,
+                                            caption=caption,
+                                            parse_mode="MarkdownV2"
+                                        )
+                                
+                                os.remove(video_file)
+                        
+                        await status_message.delete()
+                        continue
+                        
+                except Exception as e:
+                    logger.warning(f"instagrapi не спрацював для {url}: {e}")
+                    # Продовжити з yt-dlp як fallback
+            
             # Створити унікальне ім'я файлу на основі часу
-            import time
-            import json
             timestamp = int(time.time() * 1000000)  # мікросекунди для унікальності
             output_path = DOWNLOADS_DIR / f"video_{timestamp}.%(ext)s"
             
@@ -208,23 +342,15 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 description = ""
                 title = ""
             
-            # Вибрати правильну команду для завантаження
-            if is_instagram_photo:
-                # Використовувати gallery-dl для фото Instagram
-                cmd = [
-                    "gallery-dl",
-                    "-o", str(DOWNLOADS_DIR),
-                    url
-                ]
-            else:
-                # Для відео використовувати yt-dlp з правильним форматом
-                # bestvideo+bestaudio зберігає aspect ratio для широких відео
-                cmd = [
-                    "yt-dlp",
-                    "-f", "bestvideo+bestaudio/best",
-                    "-o", str(output_path),
-                    url
-                ]
+            # Використовувати yt-dlp для всіх типів контенту
+            # Для Instagram фото bestvideo буде jpg/png
+            # Для відео буде mp4
+            cmd = [
+                "yt-dlp",
+                "-f", "bestvideo+bestaudio/best",
+                "-o", str(output_path),
+                url
+            ]
             
             # Запустити завантаження
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=DOWNLOAD_TIMEOUT)
@@ -236,7 +362,6 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 continue
             
             # Знайти завантажений файл
-            import glob
             downloaded_files = glob.glob(str(DOWNLOADS_DIR / f"video_{timestamp}.*"))
             
             if not downloaded_files:
