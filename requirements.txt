@@ -1,5 +1,3 @@
 python-telegram-bot==22.7
 python-dotenv==1.2.2
 yt-dlp==2026.3.17
-instagrapi==2.0.0
-Pillow>=8.1.1
