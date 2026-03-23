@@ -134,6 +134,13 @@ async def cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("✅ Очищення завершено! Старі завантаження видалені.")
 
 
+async def vlop_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обробник для слів vlop/влоп."""
+    message_text = update.message.text.lower()
+    if 'vlop' in message_text or 'влоп' in message_text:
+        await update.message.reply_text("https://youtu.be/lhOuMYtQ94M?si=-2d0ejWlBlq8NwyO")
+
+
 # ============================================================================
 # ОБРОБНИК ЗАВАНТАЖЕННЯ ВІДЕО
 # ============================================================================
@@ -151,7 +158,16 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if word.startswith(('http://', 'https://')):
             urls_found.append(word.strip())
     
-    # Якщо посилань не знайдено
+    # Перевірити чи це реплай на бота (у відповіді)
+    is_reply_to_bot = (update.message.reply_to_message and 
+                       update.message.reply_to_message.from_user.is_bot)
+    
+    # Якщо це реплай на бота, але посилань нема - відповісти на дурість
+    if is_reply_to_bot and not urls_found:
+        await update.message.reply_text("МІША ВСЬО ХУЙНЯ ДАВАЙ СНАЧАЛА")
+        return
+    
+    # Якщо посилань не знайдено в звичайному повідомленні
     if not urls_found:
         return
     
@@ -310,6 +326,9 @@ def main() -> None:
     # Запустити встановлення команд при старті
     application.post_init = set_commands
 
+    # Додати обробник для vlop/влоп (має бути перед download_video)
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex(r'(vlop|влоп)'), vlop_handler))
+    
     # Додати обробник повідомлень для посилань на відео
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_video))
 
