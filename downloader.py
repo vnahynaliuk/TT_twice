@@ -97,14 +97,21 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 /who_asked - Про цього бота
 
 🔗 **Підтримувані платформи:**
-• TikTok (tiktok.com)
-• Instagram Reels (instagram.com)
-• YouTube (youtube.com, youtu.be)
-• Twitter/X (twitter.com, x.com)
+• TikTok - відео
+• Instagram Reels - відео
+• Instagram Posts - фото (альбоми)
+• YouTube - відео (зберігає aspect ratio)
+• Twitter/X - відео
+
+📸 **Функціонал:**
+• Завантаження відео
+• Завантаження фото (Instagram)
+• Копіювання описів як цитати
+• Автоматична очистка файлів (24 години)
 
 ⚠️ **Обмеження:**
 • Максимальний розмір файлу: 50MB
-• Час очікування завантаження: 5 хвилин бо фреймворк не тяне більше
+• Час очікування завантаження: 5 хвилин
     """
     await update.message.reply_text(help_text)
 
@@ -154,6 +161,9 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not any(platform in url for platform in SUPPORTED_PLATFORMS):
             continue
         
+        # Визначити тип контенту (фото або відео)
+        is_instagram_photo = 'instagram.com' in url and '/p/' in url
+        
         # Відправити повідомлення про обробку
         status_message = await update.message.reply_text(f"⏳ Не ссикуй щас буде. Обробляю: {url}")
         
@@ -182,13 +192,23 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 description = ""
                 title = ""
             
-            # Підготувати команду yt-dlp для завантаження
-            cmd = [
-                "yt-dlp",
-                "-f", "best",
-                "-o", str(output_path),
-                url
-            ]
+            # Вибрати правильну команду для завантаження
+            if is_instagram_photo:
+                # Використовувати gallery-dl для фото Instagram
+                cmd = [
+                    "gallery-dl",
+                    "-o", str(DOWNLOADS_DIR),
+                    url
+                ]
+            else:
+                # Для відео використовувати yt-dlp з правильним форматом
+                # bestvideo+bestaudio зберігає aspect ratio для широких відео
+                cmd = [
+                    "yt-dlp",
+                    "-f", "bestvideo+bestaudio/best",
+                    "-o", str(output_path),
+                    url
+                ]
             
             # Запустити завантаження
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=DOWNLOAD_TIMEOUT)
@@ -224,16 +244,20 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             # Відправити відео користувачу
             await status_message.edit_text("Завантажую в Telegram...")
             
-            # Підготувати caption з опису
-            caption = "ПЕРЕМОГА БУДЕ!"
+            # Підготувати caption з опису у форматі blockquote
             if description:
-                # Обмежити опис до 1024 символів (ліміт Telegram)
-                caption = description[:1024]
+                # Форматувати опис як blockquote (> на початку кожного рядка)
+                lines = description.split('\n')
+                quoted_lines = ['> ' + line for line in lines if line.strip()]
+                caption = '\n'.join(quoted_lines)[:1024]  # Обмеження до 1024 символів
+            else:
+                caption = "ПЕРЕМОГА БУДЕ!"
             
             with open(video_file, 'rb') as f:
                 await update.message.reply_video(
                     video=f,
-                    caption=caption
+                    caption=caption,
+                    parse_mode="MarkdownV2"
                 )
             
             # Очистити завантажений файл
