@@ -133,88 +133,94 @@ async def cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Завантажити відео за надане посилання."""
-    url = update.message.text.strip()
-    
-    # Перевірити URL
-    if not url.startswith(('http://', 'https://')):
-        await update.message.reply_text("Міша всьо хуйня, давай по новой")
+    # Отримати текст повідомлення
+    message_text = update.message.text
+    if not message_text:
         return
     
-    # Перевірити, чи платформа підтримується
-    if not any(platform in url for platform in SUPPORTED_PLATFORMS):
-        platforms_list = '\n'.join([f"• {p}" for p in SUPPORTED_PLATFORMS])
-        await update.message.reply_text(
-            f"Я СПИСОК ЗВІДКИ СКАЧУВАТИ КОМУ ПИСАЛА? \n\n**поки що можна звідси:**\n{platforms_list}"
-        )
+    # Пошук всіх посилань у повідомленні
+    urls_found = []
+    for word in message_text.split():
+        if word.startswith(('http://', 'https://')):
+            urls_found.append(word.strip())
+    
+    # Якщо посилань не знайдено
+    if not urls_found:
         return
     
-    # Відправити повідомлення про обробку
-    status_message = await update.message.reply_text("⏳ Не ссикуй щас буде.")
-    
-    try:
-        # Створити унікальне ім'я файлу на основі часу
-        import time
-        timestamp = int(time.time())
-        output_path = DOWNLOADS_DIR / f"video_{timestamp}.%(ext)s"
+    # Обробити кожне посилання
+    for url in urls_found:
+        # Перевірити, чи платформа підтримується
+        if not any(platform in url for platform in SUPPORTED_PLATFORMS):
+            continue
         
-        # Підготувати команду yt-dlp
-        cmd = [
-            "yt-dlp",
-            "-f", "best",
-            "-o", str(output_path),
-            url
-        ]
+        # Відправити повідомлення про обробку
+        status_message = await update.message.reply_text(f"⏳ Не ссикуй щас буде. Обробляю: {url}")
         
-        # Запустити завантаження
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=DOWNLOAD_TIMEOUT)
-        
-        if result.returncode != 0:
-            logger.error(f"МИ як фурі, ПОМИЛКА ПРИРОДИ: {result.stderr}")
-            error_msg = result.stderr[:200] if result.stderr else "Невідома помилка"
-            await status_message.edit_text(f"Завантаження не вдалося.\n\nПомилка: {error_msg}")
-            return
-        
-        # Знайти завантажений файл
-        import glob
-        downloaded_files = glob.glob(str(DOWNLOADS_DIR / f"video_{timestamp}.*"))
-        
-        if not downloaded_files:
-            await status_message.edit_text("Файл не знайдено після завантаження")
-            return
-        
-        video_file = downloaded_files[0]
-        file_size = os.path.getsize(video_file)
-        
-        # Перевірити розмір файлу (ліміт Telegram 2GB, але ми обмежуємо до 50MB для безпеки)
-        if file_size > MAX_FILE_SIZE:
-            os.remove(video_file)
-            size_mb = file_size / 1024 / 1024
-            max_mb = MAX_FILE_SIZE / 1024 / 1024
-            await status_message.edit_text(
-                f"Відео занадто велике ({size_mb:.1f}MB).\n"
-                f"Максимальний розмір {max_mb:.0f}MB"
-            )
-            return
-        
-        # Відправити відео користувачу
-        await status_message.edit_text("Завантажую в Telegram...")
-        
-        with open(video_file, 'rb') as f:
-            await update.message.reply_video(
-                video=f,
+        try:
+            # Створити унікальне ім'я файлу на основі часу
+            import time
+            timestamp = int(time.time() * 1000000)  # мікросекунди для унікальності
+            output_path = DOWNLOADS_DIR / f"video_{timestamp}.%(ext)s"
+            
+            # Підготувати команду yt-dlp
+            cmd = [
+                "yt-dlp",
+                "-f", "best",
+                "-o", str(output_path),
+                url
+            ]
+            
+            # Запустити завантаження
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=DOWNLOAD_TIMEOUT)
+            
+            if result.returncode != 0:
+                logger.error(f"МИ як фурі, ПОМИЛКА ПРИРОДИ: {result.stderr}")
+                error_msg = result.stderr[:200] if result.stderr else "Невідома помилка"
+                await status_message.edit_text(f"Завантаження не вдалося.\n\nПомилка: {error_msg}")
+                continue
+            
+            # Знайти завантажений файл
+            import glob
+            downloaded_files = glob.glob(str(DOWNLOADS_DIR / f"video_{timestamp}.*"))
+            
+            if not downloaded_files:
+                await status_message.edit_text("Файл не знайдено після завантаження")
+                continue
+            
+            video_file = downloaded_files[0]
+            file_size = os.path.getsize(video_file)
+            
+            # Перевірити розмір файлу (ліміт Telegram 2GB, але ми обмежуємо до 50MB для безпеки)
+            if file_size > MAX_FILE_SIZE:
+                os.remove(video_file)
+                size_mb = file_size / 1024 / 1024
+                max_mb = MAX_FILE_SIZE / 1024 / 1024
+                await status_message.edit_text(
+                    f"Відео занадто велике ({size_mb:.1f}MB).\n"
+                    f"Максимальний розмір {max_mb:.0f}MB"
+                )
+                continue
+            
+            # Відправити відео користувачу
+            await status_message.edit_text("Завантажую в Telegram...")
+            
+            with open(video_file, 'rb') as f:
+                await update.message.reply_video(
+                    video=f,
                 caption="ПЕРЕМОГА БУДЕ!"
             )
-        
-        # Очистити завантажений файл
-        os.remove(video_file)
-        await status_message.delete()
-        
-    except subprocess.TimeoutExpired:
-        await status_message.edit_text("too long, не тяне фреймворк, попробуй скинуть по новой")
-    except Exception as e:
-        logger.error(f"Помилка завантаження відео: {str(e)}")
-        error_msg = str(e)[:200]
-        await status_message.edit_text(f"Сталася помилка:\n{error_msg}")
+            
+            # Очистити завантажений файл
+            os.remove(video_file)
+            await status_message.delete()
+            
+        except subprocess.TimeoutExpired:
+            await status_message.edit_text("too long, не тяне фреймворк, попробуй скинуть по новой")
+        except Exception as e:
+            logger.error(f"Помилка завантаження відео: {str(e)}")
+            error_msg = str(e)[:200]
+            await status_message.edit_text(f"Сталася помилка:\n{error_msg}")
 
 
 # ============================================================================
