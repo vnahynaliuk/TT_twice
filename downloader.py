@@ -223,6 +223,10 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 def main() -> None:
     """Запустити бота."""
+    # Очистити старі файли при старті
+    cleanup_old_downloads()
+    logger.info("Очищення старих файлів завершено при старті бота")
+    
     # Отримати токен зі змінної середовища
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
