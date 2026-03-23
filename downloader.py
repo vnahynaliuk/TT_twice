@@ -6,6 +6,7 @@ Telegram Bot для завантаження відео
 import logging
 import os
 import subprocess
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 from telegram import Update
@@ -29,6 +30,39 @@ DOWNLOADS_DIR.mkdir(exist_ok=True)
 SUPPORTED_PLATFORMS = ['tiktok.com', 'instagram.com', 'youtube.com', 'youtu.be', 'reels', 'twitter.com', 'x.com']
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 DOWNLOAD_TIMEOUT = 300  # 5 хвилин
+CLEANUP_INTERVAL = 24 * 60 * 60  # 24 години в секундах
+
+
+# ============================================================================
+# ОЧИЩЕННЯ СТАРИХ ЗАВАНТАЖЕНЬ
+# ============================================================================
+
+def cleanup_old_downloads():
+    """Видалити завантаження старші за 24 години."""
+    try:
+        current_time = time.time()
+        deleted_count = 0
+        
+        for file_path in DOWNLOADS_DIR.iterdir():
+            if file_path.is_file():
+                file_mtime = file_path.stat().st_mtime
+                
+                if current_time - file_mtime > CLEANUP_INTERVAL:
+                    file_path.unlink()
+                    deleted_count += 1
+                    logger.info(f"Видалено старий файл: {file_path.name}")
+        
+        if deleted_count > 0:
+            logger.info(f"Очищення завершено: видалено {deleted_count} старих файлів")
+        
+    except Exception as e:
+        logger.error(f"Помилка при очищенні: {str(e)}")
+
+
+async def cleanup_task(context):
+    """Автоматичне очищення кожні 24 години."""
+    cleanup_old_downloads()
+    logger.info("Автоматичне очищення завершено")
 
 
 # ============================================================================
@@ -85,6 +119,12 @@ async def about(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     """
     await update.message.reply_text(about_text)
+
+
+async def cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обробник команди /cleanup - вручну видалити старі завантаження."""
+    cleanup_old_downloads()
+    await update.message.reply_text("✅ Очищення завершено! Старі завантаження видалені.")
 
 
 # ============================================================================
@@ -195,9 +235,15 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("about", about))
+    application.add_handler(CommandHandler("cleanup", cleanup))
 
-    # Додати обробник повідомлень для посилань на відео (обробляє будь-який текст, який не є командою)
+    # Додати обробник повідомлень для посилань на відео
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_video))
+
+    # Додати автоматичне очищення кожні 24 години
+    job_queue = application.job_queue
+    job_queue.run_repeating(cleanup_task, interval=CLEANUP_INTERVAL, first=0)
+    logger.info(f"Автоматичне очищення налаштовано на кожні {CLEANUP_INTERVAL // 3600} годин")
 
     # Почати опитування повідомлень
     logger.info("Бот запущено. Опитування повідомлень...")
