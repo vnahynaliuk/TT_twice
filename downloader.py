@@ -9,7 +9,7 @@ import subprocess
 import time
 from pathlib import Path
 from dotenv import load_dotenv
-from telegram import Update
+from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # Завантажити змінні середовища з файлу .env
@@ -246,6 +246,19 @@ def main() -> None:
     application.add_handler(CommandHandler("help_me_please", help_command))
     application.add_handler(CommandHandler("who_asked", about))
     application.add_handler(CommandHandler("cleanup", cleanup))
+
+    # Встановити команди в Telegram
+    async def set_commands(app):
+        commands = [
+            BotCommand("start_pohnaly", "Привіт"),
+            BotCommand("help_me_please", "Показати цю довідку"),
+            BotCommand("who_asked", "Про цього бота"),
+        ]
+        await app.bot.set_my_commands(commands)
+        logger.info("Команди встановлені в Telegram")
+    
+    # Запустити встановлення команд при старті
+    application.post_init = set_commands
 
     # Додати обробник повідомлень для посилань на відео
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_video))
