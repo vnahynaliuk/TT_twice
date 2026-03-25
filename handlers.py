@@ -202,7 +202,7 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             # ----------------------------------------------------------------
             output_path = DOWNLOADS_DIR / f"video_{timestamp}.%(ext)s"
 
-            info_cmd = ["yt-dlp", "-j", "--no-warnings", url]
+            info_cmd = ["yt-dlp", "--js-runtimes", "node", "-j", "--no-warnings", url]            
             try:
                 info_result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=30)
                 video_info = json.loads(info_result.stdout) if info_result.stdout else {}
@@ -213,6 +213,7 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
             cmd = [
                 "yt-dlp",
+                "--js-runtimes", "node",
                 "-f", "bestvideo+bestaudio/best",
                 "-o", str(output_path),
                 url
