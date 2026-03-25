@@ -214,12 +214,17 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             cmd = [
                 "yt-dlp",
                 "--js-runtimes", "node",
-                "-f", "bestvideo+bestaudio/best",
+                "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4",
                 "-o", str(output_path),
                 url
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=DOWNLOAD_TIMEOUT)
+
+            # перевірка на вікове обмеження YouTube
+            if "Sign in to confirm your age" in result.stderr:
+                await status_message.edit_text("а я знаю що ти дрочеш) відос то 18+")
+                continue
 
             # yt-dlp не впорався — пробуємо gallery-dl (для фото з Twitter тощо)
             if result.returncode != 0:
